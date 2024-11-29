@@ -20,6 +20,7 @@ require (
 	github.com/gorilla/handlers v1.5.2
 	github.com/gorilla/mux v1.8.1
 	github.com/hashicorp/golang-lru/arc/v2 v2.0.5
+	github.com/joho/godotenv v1.5.1
 	github.com/klauspost/compress v1.17.9
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/opencontainers/go-digest v1.0.0
@@ -29,6 +30,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.8.0
 	github.com/stretchr/testify v1.9.0
+	github.com/tencentyun/cos-go-sdk-v5 v0.7.58
 	go.opentelemetry.io/contrib/exporters/autoexport v0.54.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.54.0
 	go.opentelemetry.io/otel v1.29.0
@@ -40,6 +42,12 @@ require (
 	golang.org/x/oauth2 v0.23.0
 	google.golang.org/api v0.197.0
 	gopkg.in/yaml.v2 v2.4.0
+)
+
+require (
+	github.com/clbanning/mxj v1.8.4 // indirect
+	github.com/google/go-querystring v1.1.0 // indirect
+	github.com/mozillazg/go-httpheader v0.4.0 // indirect
 )
 
 require (

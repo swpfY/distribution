@@ -43,3 +43,6 @@ tests/miniodata
 **/.hugo_build.lock
 docs/resources
 docs/public
+
+playground
+registry/storage/driver/cos/.env
