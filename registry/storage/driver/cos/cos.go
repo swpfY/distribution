@@ -21,9 +21,10 @@ import (
 )
 
 const (
-	driverName  = "cos"
-	chunkSize   = 10 * 1024 * 1024
-	contentType = "application/octet-stream"
+	driverName   = "cos"
+	minChunkSize = 1024 * 1024
+	chunkSize    = 10 * 1024 * 1024
+	contentType  = "application/octet-stream"
 
 	// multipartCopyThresholdSize defines the default object size
 	// above which multipart copy will be used. (Copy Object - Copy is used
@@ -125,7 +126,7 @@ func (d *driver) Name() string {
 
 // GetContent retrieves the content stored at "path" as a []byte.
 func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
-	reader, err := d.Reader(ctx, d.pathToKey(path), 0)
+	reader, err := d.Reader(ctx, path, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -150,15 +151,33 @@ func (d *driver) Reader(ctx context.Context, path string, offset int64) (io.Read
 	}
 	resp, err := d.cosClient.Object.Get(ctx, d.pathToKey(path), &option)
 	if err != nil {
+		if resp != nil {
+			// 416 Range Not Satisfiable
+			if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
+				return io.NopCloser(bytes.NewReader(nil)), nil
+			}
+
+			// 404 Not Found
+			if resp.StatusCode == http.StatusNotFound {
+				return nil, storagedriver.PathNotFoundError{Path: path}
+			}
+		}
 		return nil, err
 	}
 	return resp.Body, nil
 }
 
+// Writer returns a FileWriter which will store the content written to it
+// at the location designated by "path" after the call to Commit.
+// It only allows appending to paths with zero size committed content,
+// in which the existing content is overridden with the new content.
+// It returns storagedriver.Error when appending to paths
+// with non-zero committed content.
 func (d *driver) Writer(ctx context.Context, path string, appendMode bool) (storagedriver.FileWriter, error) {
 	key := d.pathToKey(path)
-	// new data
-	if !appendMode {
+
+	// new multipart upload
+	init := func() (storagedriver.FileWriter, error) {
 		res, _, err := d.cosClient.Object.InitiateMultipartUpload(ctx, key, &cos.InitiateMultipartUploadOptions{
 			ObjectPutHeaderOptions: &cos.ObjectPutHeaderOptions{
 				ContentType: contentType,
@@ -170,8 +189,13 @@ func (d *driver) Writer(ctx context.Context, path string, appendMode bool) (stor
 		return d.newWriter(ctx, key, res.UploadID, nil), nil
 	}
 
+	// new data
+	if !appendMode {
+		return init()
+	}
+
 	opt := cos.ListMultipartUploadsOptions{
-		Prefix: key,
+		Prefix: key, // target object
 	}
 	isTruncated := true
 	for isTruncated {
@@ -183,20 +207,13 @@ func (d *driver) Writer(ctx context.Context, path string, appendMode bool) (stor
 		// if there were no more results to return after the first call, res.IsTruncated would have been false
 		// and the loop would be exited without recalling
 		if len(res.Uploads) == 0 {
-			fileInfo, err := d.Stat(ctx, key)
+			fileInfo, err := d.Stat(ctx, path)
 			if err != nil {
 				return nil, err
 			}
+
 			if fileInfo.Size() == 0 { // new multipart upload
-				res, _, err := d.cosClient.Object.InitiateMultipartUpload(ctx, key, &cos.InitiateMultipartUploadOptions{
-					ObjectPutHeaderOptions: &cos.ObjectPutHeaderOptions{
-						ContentType: contentType,
-					},
-				})
-				if err != nil {
-					return nil, err
-				}
-				return d.newWriter(ctx, key, res.UploadID, nil), nil
+				return init()
 			}
 			return nil, storagedriver.Error{
 				DriverName: driverName,
@@ -258,7 +275,7 @@ func (d *driver) statList(ctx context.Context, path string) (*storagedriver.File
 // in bytes and the creation time.
 func (d *driver) Stat(ctx context.Context, path string) (storagedriver.FileInfo, error) {
 	res, err := d.cosClient.Object.Head(ctx, d.pathToKey(path), nil)
-	if err != nil { // is directory
+	if err != nil || path == "/" { // is directory
 		fi, err := d.statList(ctx, path)
 		if err != nil {
 			return nil, err
@@ -288,30 +305,35 @@ func (d *driver) Stat(ctx context.Context, path string) (storagedriver.FileInfo,
 // return only to the root level
 func (d *driver) List(ctx context.Context, path string) ([]string, error) {
 	key := d.pathToKey(path)
+	if path != "/" {
+		key += "/"
+	}
+
 	opt := &cos.BucketGetOptions{
 		Prefix:    key,
 		Delimiter: "/",
 		MaxKeys:   1000,
+		Marker:    "",
 	}
-	var marker string
 	var files []string
 	var directories []string
 
 	isTruncated := true
 	for isTruncated {
-		opt.Marker = marker
 		v, _, err := d.cosClient.Bucket.Get(ctx, opt)
 		if err != nil {
 			return nil, err
 		}
 		for _, content := range v.Contents {
-			files = append(files, content.Key)
+			if content.Key != key {
+				files = append(files, d.keyToPath(content.Key))
+			}
 		}
 		for _, commonPrefix := range v.CommonPrefixes {
-			directories = append(directories, commonPrefix)
+			directories = append(directories, d.keyToPath(commonPrefix))
 		}
 		isTruncated = v.IsTruncated
-		marker = v.NextMarker
+		opt.Marker = v.NextMarker
 	}
 	// all the files include directories
 	filePaths := append(files, directories...)
@@ -370,7 +392,10 @@ func (d *driver) copy(ctx context.Context, sourcePath, destPath string) error {
 			limiter <- struct{}{}
 			// bytes range
 			firstByte := i * multipartCopyChunkSize
-			lastByte := firstByte + multipartCopyChunkSize - 1
+			lastByte := int64(firstByte + multipartCopyChunkSize - 1)
+			if lastByte >= fileInfo.Size() {
+				lastByte = fileInfo.Size() - 1
+			}
 			// copy offset part
 			res, _, err := d.cosClient.Object.CopyPart(ctx, key, v.UploadID, i+1, sourceURL, &cos.ObjectCopyPartOptions{
 				XCosCopySourceRange: fmt.Sprintf("bytes=%d-%d", firstByte, lastByte),
@@ -420,15 +445,39 @@ func (d *driver) Delete(ctx context.Context, path string) error {
 		opt.Marker = marker
 		// list all the objects
 		res, _, err := d.cosClient.Bucket.Get(ctx, opt)
-		if err != nil {
-			return err
+		if err != nil || len(res.Contents) == 0 {
+			return storagedriver.PathNotFoundError{Path: path}
 		}
+
 		// delete all the objects
+		var objs []cos.Object
 		for _, content := range res.Contents {
-			if _, err = d.cosClient.Object.Delete(ctx, content.Key); err != nil {
+			if len(content.Key) > len(key) && content.Key[len(key)] != '/' {
+				continue
+			}
+			objs = append(objs, cos.Object{Key: content.Key})
+		}
+
+		// delete multi objects
+		if len(objs) > 0 {
+			v, _, err := d.cosClient.Object.DeleteMulti(ctx, &cos.ObjectDeleteMultiOptions{
+				Objects: objs,
+			})
+			if err != nil {
 				return err
 			}
+			if len(v.Errors) > 0 {
+				errs := make([]error, 0, len(v.Errors))
+				for _, err := range v.Errors {
+					errs = append(errs, errors.New(err.Message))
+				}
+				return storagedriver.Errors{
+					DriverName: driverName,
+					Errs:       errs,
+				}
+			}
 		}
+
 		isTruncated = res.IsTruncated
 		marker = res.NextMarker
 	}
@@ -549,8 +598,14 @@ func (d *driver) doWalk(parentCtx context.Context, objectCount *int64, from, sta
 	return nil
 }
 
+// add the prefix
 func (d *driver) pathToKey(path string) string {
 	return strings.TrimLeft(strings.TrimRight(d.rootDirectory, "/")+path, "/")
+}
+
+// remove the prefix
+func (d *driver) keyToPath(key string) string {
+	return "/" + strings.TrimRight(strings.TrimPrefix(key, d.rootDirectory), "/")
 }
 
 var _ storagedriver.FileWriter = &writer{}
@@ -592,10 +647,49 @@ func (w *writer) Write(p []byte) (int, error) {
 	if err := w.done(); err != nil {
 		return 0, err
 	}
+	if len(w.parts) > 0 && int(w.parts[len(w.parts)-1].Size) < minChunkSize {
+		// complete the uploads
+		sort.Slice(w.parts, func(i, j int) bool {
+			return w.parts[i].PartNumber < w.parts[j].PartNumber
+		})
+		_, _, err := w.driver.cosClient.Object.CompleteMultipartUpload(w.ctx, w.key, w.uploadID,
+			&cos.CompleteMultipartUploadOptions{
+				Parts: w.parts,
+			},
+		)
+		if err != nil {
+			if err1 := w.Cancel(w.ctx); err1 != nil {
+				return 0, errors.Join(err, err1)
+			}
+			return 0, err
+		}
+		// new
+		res, _, err := w.driver.cosClient.Object.InitiateMultipartUpload(w.ctx, w.key, &cos.InitiateMultipartUploadOptions{
+			ObjectPutHeaderOptions: &cos.ObjectPutHeaderOptions{
+				ContentType: contentType,
+			},
+		})
+		if err != nil {
+			return 0, err
+		}
+		w.uploadID = res.UploadID
+		// If the entire written file is smaller than minChunkSize, we need to make a new part from scratch
+		if w.size < minChunkSize {
+			res, err := w.driver.cosClient.Object.Get(w.ctx, w.key, nil)
+			if err != nil {
+				return 0, err
+			}
+			defer res.Body.Close()
+			w.reset()
+			if _, err := io.Copy(w.buf, res.Body); err != nil {
+				return 0, err
+			}
+		}
+	}
 
 	n, _ := w.buf.Write(p)
 
-	for w.buf.Len() > 0 {
+	for w.buf.Len() >= w.driver.chunkSize {
 		if err := w.flush(); err != nil {
 			return 0, fmt.Errorf("flush: %w", err)
 		}
@@ -612,6 +706,12 @@ func (w *writer) Close() error {
 	defer w.releaseBuffer()
 
 	return w.flush()
+}
+
+func (w *writer) reset() {
+	w.buf.Reset()
+	w.parts = nil
+	w.size = 0
 }
 
 // releaseBuffer resets the buffer and returns it to the pool.
@@ -645,14 +745,30 @@ func (w *writer) Commit(ctx context.Context) error {
 	if err := w.flush(); err != nil {
 		return err
 	}
-
 	w.committed = true
-
+	if len(w.parts) == 0 {
+		res, err := w.driver.cosClient.Object.UploadPart(
+			ctx,
+			w.key,
+			w.uploadID,
+			1,
+			nil,
+			&cos.ObjectUploadPartOptions{
+				ContentLength: 0,
+			},
+		)
+		if err != nil {
+			return err
+		}
+		w.parts = append(w.parts, cos.Object{
+			ETag:       res.Header.Get("ETag"),
+			PartNumber: 1,
+		})
+	}
 	// sort by asc
 	sort.Slice(w.parts, func(i, j int) bool {
 		return w.parts[i].PartNumber < w.parts[j].PartNumber
 	})
-
 	_, _, err := w.driver.cosClient.Object.CompleteMultipartUpload(ctx, w.key, w.uploadID,
 		&cos.CompleteMultipartUploadOptions{
 			Parts: w.parts,
@@ -669,6 +785,7 @@ func (w *writer) Commit(ctx context.Context) error {
 
 // flush writes at most [w.driver.ChunkSize] of the buffer to COS.
 // it calls cos.Object.UploadPart function that is used to upload part
+// The number of blocks supported is 1 to 10000, and the block size is 1 MB to 5 GB
 func (w *writer) flush() error {
 	// buffer is empty
 	if w.buf.Len() == 0 {
@@ -677,7 +794,6 @@ func (w *writer) flush() error {
 	r := bytes.NewReader(w.buf.Next(w.driver.chunkSize))
 	partSize := int64(r.Len())
 	partNumber := len(w.parts) + 1
-
 	res, err := w.driver.cosClient.Object.UploadPart(w.ctx, w.key, w.uploadID,
 		partNumber,
 		r,

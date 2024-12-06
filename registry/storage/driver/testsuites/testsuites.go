@@ -5,6 +5,8 @@ import (
 	"context"
 	crand "crypto/rand"
 	"crypto/sha256"
+	storagedriver "github.com/distribution/distribution/v3/registry/storage/driver"
+	"github.com/stretchr/testify/suite"
 	"io"
 	"math/rand"
 	"net/http"
@@ -15,9 +17,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	storagedriver "github.com/distribution/distribution/v3/registry/storage/driver"
-	"github.com/stretchr/testify/suite"
 )
 
 // randomBytes pre-allocates all of the memory sizes needed for the test. If

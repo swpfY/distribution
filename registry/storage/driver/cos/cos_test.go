@@ -30,7 +30,6 @@ func init() {
 	if err != nil {
 		fmt.Println("Error loading .env file")
 	}
-	fmt.Println(os.Getenv("COS_STORAGE_SECRET_ID"))
 
 	var (
 		secretID      string
