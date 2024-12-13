@@ -2,73 +2,35 @@
 <img style="align: center; padding-left: 10px; padding-right: 10px; padding-bottom: 10px;" width="238px" height="238px" src="./distribution-logo.svg" />
 </p>
 
-[![Build Status](https://github.com/distribution/distribution/workflows/build/badge.svg?branch=main&event=push)](https://github.com/distribution/distribution/actions/workflows/build.yml?query=workflow%3Abuild)
-[![GoDoc](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/distribution/distribution)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
-[![codecov](https://codecov.io/gh/distribution/distribution/branch/main/graph/badge.svg)](https://codecov.io/gh/distribution/distribution)
-[![FOSSA Status](https://app.fossa.com/api/projects/custom%2B162%2Fgithub.com%2Fdistribution%2Fdistribution.svg?type=shield)](https://app.fossa.com/projects/custom%2B162%2Fgithub.com%2Fdistribution%2Fdistribution?ref=badge_shield)
-[![OCI Conformance](https://github.com/distribution/distribution/workflows/conformance/badge.svg)](https://github.com/distribution/distribution/actions?query=workflow%3Aconformance)
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/distribution/distribution/badge)](https://securityscorecards.dev/viewer/?uri=github.com/distribution/distribution)
 
-The toolset to pack, ship, store, and deliver content.
+## Target
 
-This repository's main product is the Open Source Registry implementation
-for storing and distributing container images and other content using the
-[OCI Distribution Specification](https://github.com/opencontainers/distribution-spec).
-The goal of this project is to provide a simple, secure, and scalable base
-for building a large scale registry solution or running a simple private registry.
-It is a core library for many registry operators including Docker Hub, GitHub Container Registry,
-GitLab Container Registry and DigitalOcean Container Registry, as well as the CNCF Harbor
-Project, and VMware Harbor Registry.
+This project inherits from [Distribution](https://github.com/distribution/distribution) and add some new storage drivers. Additional support providers are as follows：
 
-This repository contains the following components:
+- [Tencent Cloud Object Stroage (COS)](https://www.tencentcloud.com/products/cos?lang=en)  ✅
+- [AliCloud Object Storage Service (OSS)](https://www.alibabacloud.com/en/product/object-storage-service?_p_lc=1) ⌛️
 
-|**Component**       |Description                                                                                                                                                                                         |
-|--------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **registry**       | An implementation of the [OCI Distribution Specification](https://github.com/opencontainers/distribution-spec).                                                                                                 |
-| **libraries**      | A rich set of libraries for interacting with distribution components. Please see [godoc](https://pkg.go.dev/github.com/distribution/distribution) for details. **Note**: The interfaces for these libraries are **unstable**. |
-| **documentation**  | Full documentation is available at [https://distribution.github.io/distribution](https://distribution.github.io/distribution/).
+## Provider
 
-### How does this integrate with Docker, containerd, and other OCI client?
+### Tencent Cloud Object Storage（COS）
 
-Clients implement against the OCI specification and communicate with the
-registry using HTTP. This project contains a client implementation which
-is currently in use by Docker, however, it is deprecated for the
-[implementation in containerd](https://github.com/containerd/containerd/tree/master/remotes/docker)
-and will not support new features.
+| Parameter     | Required | Description                                                  |
+| ------------- | -------- | ------------------------------------------------------------ |
+| secretid      | yes      | Your TencentCloud CAM SecretId.                              |
+| secretkey     | yes      | Your TencentCloud CAM SecretKey.                             |
+| region        | yes      | The COS region in which your bucket exists. For example `ap-chengdu`. |
+| bucket        | yes      | The bucket name registered in cos. For example `test-registry-1101772061`. |
+| rootdirectory | no       | This is a prefix that is applied to all S3 keys to allow you to segment data in your bucket if necessary. The default is empty. |
+| serviceurl    | no       | It is used to get service. The default is `https://service.cos.myqcloud.com`. |
 
-### What are the long term goals of the Distribution project?
+## Image
 
-The _Distribution_ project has the further long term goal of providing a
-secure tool chain for distributing content. The specifications, APIs and tools
-should be as useful with Docker as they are without.
+[dockerhub](https://hub.docker.com/explore) - [jideaflow/distribution](https://hub.docker.com/repository/docker/jideaflow/distribution/tags)
 
-Our goal is to design a professional grade and extensible content distribution
-system that allow users to:
+```bash
+# the first version based on v3.0.0-rc.1, only support cos
+docker pull jideaflow/distribution:v3.0.0-rc.1_cos
+```
 
-* Enjoy an efficient, secured and reliable way to store, manage, package and
-  exchange content
-* Hack/roll their own on top of healthy open-source components
-* Implement their own home made solution through good specs, and solid
-  extensions mechanism.
 
-## Contribution
 
-Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute
-issues, fixes, and patches to this project. If you are contributing code, see
-the instructions for [building a development environment](BUILDING.md).
-
-## Communication
-
-For async communication and long running discussions please use issues and pull requests on the github repo.
-This will be the best place to discuss design and implementation.
-
-For sync communication we have a #distribution channel in the [CNCF Slack](https://slack.cncf.io/)
-that everyone is welcome to join and chat about development.
-
-## Licenses
-
-The distribution codebase is released under the [Apache 2.0 license](LICENSE).
-The README.md file, and files in the "docs" folder are licensed under the
-Creative Commons Attribution 4.0 International License. You may obtain a
-copy of the license, titled CC-BY-4.0, at http://creativecommons.org/licenses/by/4.0/.
