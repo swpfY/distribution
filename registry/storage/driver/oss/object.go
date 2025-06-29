@@ -18,8 +18,8 @@ func (d *driver) Name() string {
 
 func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
 	req := &oss.GetObjectRequest{
-		Bucket: d.ossBucket(),
-		Key:    d.ossKey(path),
+		Bucket: d.ossBucketPtr(),
+		Key:    d.ossKeyPtr(path),
 	}
 
 	resp, err := d.client.GetObject(ctx, req)
@@ -41,8 +41,8 @@ func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
 
 func (d *driver) PutContent(ctx context.Context, path string, content []byte) error {
 	req := &oss.PutObjectRequest{
-		Bucket: d.ossBucket(),
-		Key:    d.ossKey(path),
+		Bucket: d.ossBucketPtr(),
+		Key:    d.ossKeyPtr(path),
 		Body:   bytes.NewReader(content),
 	}
 
@@ -55,8 +55,8 @@ func (d *driver) PutContent(ctx context.Context, path string, content []byte) er
 
 func (d *driver) Reader(ctx context.Context, path string, offset int64) (io.ReadCloser, error) {
 	req := &oss.GetObjectRequest{
-		Bucket: d.ossBucket(),
-		Key:    d.ossKey(path),
+		Bucket: d.ossBucketPtr(),
+		Key:    d.ossKeyPtr(path),
 		Range:  d.ossRange(offset),
 	}
 
@@ -80,8 +80,8 @@ func (d *driver) Reader(ctx context.Context, path string, offset int64) (io.Read
 
 func (d *driver) Stat(ctx context.Context, path string) (storagedriver.FileInfo, error) {
 	req := &oss.HeadObjectRequest{
-		Bucket: d.ossBucket(),
-		Key:    d.ossKey(path),
+		Bucket: d.ossBucketPtr(),
+		Key:    d.ossKeyPtr(path),
 	}
 
 	resp, err := d.client.HeadObject(ctx, req)
@@ -109,18 +109,7 @@ func (d *driver) Stat(ctx context.Context, path string) (storagedriver.FileInfo,
 }
 
 func (d *driver) List(ctx context.Context, path string) ([]string, error) {
-	prefix := *d.ossKey(path)
-	// add suffix slash for OSS directory listing
-	if prefix != "" && !strings.HasSuffix(prefix, "/") {
-		prefix += "/"
-	}
-
-	req := &oss.ListObjectsV2Request{
-		Bucket: d.ossBucket(),
-		Prefix: oss.Ptr(prefix),
-	}
-
-	p := d.client.NewListObjectsV2Paginator(req)
+	p := d.OssGetPaginator(path)
 
 	var keys []string
 
@@ -137,4 +126,15 @@ func (d *driver) List(ctx context.Context, path string) ([]string, error) {
 	}
 
 	return keys, nil
+}
+
+func (d *driver) OssGetPaginator(path string) *oss.ListObjectsV2Paginator {
+	folder := d.folderPathToKey(path)
+
+	req := &oss.ListObjectsV2Request{
+		Bucket: d.ossBucketPtr(),
+		Prefix: oss.Ptr(folder),
+	}
+
+	return d.client.NewListObjectsV2Paginator(req)
 }
