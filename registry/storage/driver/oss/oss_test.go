@@ -58,11 +58,11 @@ func init() {
 
 	ossDriverConstructor = func() (storagedriver.StorageDriver, error) {
 		parameters := map[string]interface{}{
-			"access_key_id":     accessKeyID,
-			"access_key_secret": accessKeySecret,
-			"region":            region,
-			"bucket":            bucket,
-			"root_directory":    rootDirectory,
+			"accessid":      accessKeyID,
+			"secret":        accessKeySecret,
+			"region":        region,
+			"bucket":        bucket,
+			"rootdirectory": rootDirectory,
 		}
 		params, err := NewParameters(parameters)
 		if err != nil {

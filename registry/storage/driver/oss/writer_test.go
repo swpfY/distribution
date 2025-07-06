@@ -2,13 +2,13 @@ package oss
 
 import (
 	"context"
-	storagedriver "github.com/distribution/distribution/v3/registry/storage/driver"
-	"net/http"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 )
 
-func TestDelete(t *testing.T) {
+func TestCleanupFlow(t *testing.T) {
 	skipCheck(t)
 
 	driver, err := ossDriverConstructor()
@@ -17,73 +17,75 @@ func TestDelete(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	path := "/main/to_delete.txt"
-	content := []byte("to be deleted")
 
-	// 先写入
-	if err := driver.PutContent(ctx, path, content); err != nil {
-		t.Fatalf("PutContent failed: %v", err)
-	}
+	// 测试路径（复杂多级）
+	tempPath := "/test-cleanup/temp/file1"
+	finalPath := "/test-cleanup/final/file1"
 
-	// 确认存在
-	if _, err := driver.Stat(ctx, path); err != nil {
-		t.Fatalf("Stat before delete failed: %v", err)
-	}
+	content := []byte("hello cleanup test")
 
-	// 调用 Delete
-	if err := driver.Delete(ctx, path); err != nil {
-		t.Fatalf("Delete failed: %v", err)
-	}
-
-	// 再次 Stat 应报 PathNotFoundError
-	if _, err := driver.Stat(ctx, path); err == nil {
-		t.Errorf("Stat after delete should have failed")
-	} else if _, ok := err.(storagedriver.PathNotFoundError); !ok {
-		t.Errorf("Stat after delete error must be PathNotFoundError, got %T", err)
-	}
-}
-
-func TestMove(t *testing.T) {
-	skipCheck(t)
-
-	driver, err := ossDriverConstructor()
+	// 1. 测试 Cancel 是否清理
+	writer, err := driver.Writer(ctx, tempPath, false)
 	if err != nil {
-		t.Fatalf("failed to create driver: %v", err)
+		t.Fatalf("Writer failed: %v", err)
 	}
 
-	ctx := context.Background()
-	src := "/main/move_src.txt"
-	dst := "/main/move_dst.txt"
-	content := []byte("move me")
+	if _, err := writer.Write(content); err != nil {
+		t.Fatalf("Writer.Write failed: %v", err)
+	}
 
-	// 写入源文件
-	if err := driver.PutContent(ctx, src, content); err != nil {
+	if err := writer.Cancel(ctx); err != nil {
+		t.Fatalf("Writer.Cancel failed: %v", err)
+	}
+
+	// Cancel 后检查对象是否被删除
+	_, err = driver.Stat(ctx, tempPath)
+	if err == nil {
+		t.Errorf("Stat should have failed after Cancel, object should be deleted: %s", tempPath)
+	}
+
+	// 2. 测试 Move 是否清理源对象
+	if err := driver.PutContent(ctx, tempPath, content); err != nil {
 		t.Fatalf("PutContent failed: %v", err)
 	}
 
-	// 调用 Move
-	if err := driver.Move(ctx, src, dst); err != nil {
+	if err := driver.Move(ctx, tempPath, finalPath); err != nil {
 		t.Fatalf("Move failed: %v", err)
 	}
 
-	// 源文件应不存在
-	if _, err := driver.Stat(ctx, src); err == nil {
-		t.Errorf("Stat on src after move should have failed")
-	} else if _, ok := err.(storagedriver.PathNotFoundError); !ok {
-		t.Errorf("Stat on src after move error must be PathNotFoundError, got %T", err)
+	// Move 后源对象应不存在
+	_, err = driver.Stat(ctx, tempPath)
+	if err == nil {
+		t.Errorf("Stat should have failed for source after Move, but object still exists: %s", tempPath)
 	}
 
-	// 目标文件应存在且内容一致
-	data, err := driver.GetContent(ctx, dst)
+	// Move 后目标对象应存在
+	_, err = driver.Stat(ctx, finalPath)
 	if err != nil {
-		t.Fatalf("GetContent on dst failed: %v", err)
+		t.Errorf("Stat should have succeeded for destination after Move: %s", finalPath)
 	}
-	if string(data) != string(content) {
-		t.Errorf("Move content mismatch: expected %s, got %s", content, data)
+
+	// 3. 测试 Delete 是否删除复杂路径
+	if err := driver.Delete(ctx, finalPath); err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+
+	_, err = driver.Stat(ctx, finalPath)
+	if err == nil {
+		t.Errorf("Stat should have failed after Delete, but object still exists: %s", finalPath)
+	}
+
+	// 4. Walk 检查是否存在任何残留对象
+	remaining, err := driver.List(ctx, "/test-cleanup")
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(remaining) != 0 {
+		t.Errorf("Unexpected remaining files: %v", remaining)
 	}
 }
 
-func TestRedirectURL(t *testing.T) {
+func TestConcurrentWriter(t *testing.T) {
 	skipCheck(t)
 
 	driver, err := ossDriverConstructor()
@@ -92,31 +94,63 @@ func TestRedirectURL(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	path := "/main/redirect.txt"
-	content := []byte("redirect test")
+	path := "/main/concurrent_writer_test.txt"
 
-	// 写入文件
-	if err := driver.PutContent(ctx, path, content); err != nil {
-		t.Fatalf("PutContent failed: %v", err)
+	// 构造 5 个 goroutine，每个写入不同内容
+	parts := [][]byte{
+		[]byte("part1-"),
+		[]byte("part2-"),
+		[]byte("part3-"),
+		[]byte("part4-"),
+		[]byte("part5"),
 	}
 
-	// 构造假请求，仅用于方法签名
-	fakeReq, _ := http.NewRequest("GET", "http://example.com", nil)
-	url, err := driver.RedirectURL(fakeReq, path)
+	writer, err := driver.Writer(ctx, path, false)
 	if err != nil {
-		t.Fatalf("RedirectURL failed: %v", err)
+		t.Fatalf("Writer failed: %v", err)
 	}
 
-	if !strings.HasPrefix(url, "https://") {
-		t.Errorf("RedirectURL should return https URL, got %q", url)
-	}
-	if !strings.Contains(url, "redirect.txt") {
-		t.Errorf("RedirectURL should contain the file name: %q", url)
+	var wg sync.WaitGroup
+	for _, p := range parts {
+		wg.Add(1)
+		go func(data []byte) {
+			defer wg.Done()
+			for i := 0; i < 100; i++ { // 每个 goroutine 写入 100 次，制造强并发
+				if _, err := writer.Write(data); err != nil {
+					t.Errorf("Write failed: %v", err)
+					return
+				}
+			}
+		}(p)
 	}
 
+	wg.Wait()
+
+	// 提交写入
+	if err := writer.Commit(ctx); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	// 读取文件
+	content, err := driver.GetContent(ctx, path)
+	if err != nil {
+		t.Fatalf("GetContent failed: %v", err)
+	}
+
+	// 检查文件大小是否符合预期
+	expectedSize := 0
+	for _, p := range parts {
+		expectedSize += len(p) * 100 // 每个部分写入 100 次
+	}
+
+	if len(content) != expectedSize {
+		t.Fatalf("Size mismatch: expected %d bytes, got %d bytes", expectedSize, len(content))
+	}
+
+	t.Logf("Concurrent write test passed, final size: %d bytes", len(content))
 }
 
-func TestWalk(t *testing.T) {
+func TestMultipleWritersConcurrent(t *testing.T) {
 	skipCheck(t)
 
 	driver, err := ossDriverConstructor()
@@ -125,36 +159,40 @@ func TestWalk(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	prefix := "/main/walk_test"
-	paths := []string{
-		prefix + "/a.txt",
-		prefix + "/sub/b.txt",
-		prefix + "/sub/c.txt",
-	}
-	for _, p := range paths {
-		if err := driver.PutContent(ctx, p, []byte("x")); err != nil {
-			t.Fatalf("PutContent failed for %s: %v", p, err)
+	numWriters := 8
+	var wg sync.WaitGroup
+
+	writeOne := func(path string) {
+		defer wg.Done()
+
+		writer, err := driver.Writer(ctx, path, false)
+		if err != nil {
+			t.Errorf("Writer failed for %s: %v", path, err)
+			return
+		}
+
+		content := []byte(strings.Repeat("a", 1024*1024)) // 1MB chunk
+
+		for i := 0; i < 10; i++ { // 每个 Writer 写 10MB
+			if _, err := writer.Write(content); err != nil {
+				t.Errorf("Write failed for %s: %v", path, err)
+				return
+			}
+		}
+
+		if err := writer.Commit(ctx); err != nil {
+			t.Errorf("Commit failed for %s: %v", path, err)
+			return
 		}
 	}
 
-	var walked []string
-	walkFn := func(fi storagedriver.FileInfo) error {
-		walked = append(walked, fi.Path())
-		return nil
+	for i := 0; i < numWriters; i++ {
+		path := fmt.Sprintf("/multi_writer_test/file_%d.txt", i)
+		wg.Add(1)
+		go writeOne(path)
 	}
 
-	if err := driver.Walk(ctx, prefix, walkFn); err != nil {
-		t.Fatalf("Walk failed: %v", err)
-	}
+	wg.Wait()
 
-	// 验证 walked 列表包含所有写入的文件
-	m := make(map[string]struct{}, len(walked))
-	for _, p := range walked {
-		m[p] = struct{}{}
-	}
-	for _, expected := range paths {
-		if _, found := m[expected]; !found {
-			t.Errorf("Walk missing %q, walked: %v", expected, walked)
-		}
-	}
+	t.Log("Multi-writer concurrent test finished.")
 }

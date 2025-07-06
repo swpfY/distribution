@@ -2,6 +2,7 @@ package oss
 
 import (
 	"context"
+	"sync"
 
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss"
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/credentials"
@@ -26,6 +27,7 @@ type driver struct {
 	bucket        string
 	rootDirectory string
 	chunkSize     int64
+	sessions      sync.Map
 }
 
 type baseEmbed struct {
@@ -65,6 +67,7 @@ func New(ctx context.Context, params *Parameters) (*Driver, error) {
 		bucket:        params.Bucket,
 		chunkSize:     params.ChunkSize,
 		rootDirectory: params.RootDirectory,
+		sessions:      sync.Map{},
 	}
 
 	return &Driver{

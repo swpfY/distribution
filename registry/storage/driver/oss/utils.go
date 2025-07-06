@@ -18,44 +18,55 @@ func (d *driver) ossKeyPtr(path string) *string {
 
 func (d *driver) pathToKey(path string) string {
 	clean := strings.Trim(path, "/")
+
 	if d.rootDirectory == "" {
 		return clean
 	}
-	return strings.Trim(d.rootDirectory, "/") + "/" + clean
+	if clean == "" {
+		return d.rootDirectory
+	}
+	return d.rootDirectory + "/" + clean
 }
 
 func (d *driver) keyToPath(key string) string {
 	clean := strings.Trim(key, "/")
-	prefix := strings.Trim(d.rootDirectory, "/")
-	if prefix == "" {
+	if d.rootDirectory == "" {
 		return "/" + clean
 	}
-	// 根目录
-	if clean == prefix {
+	if clean == d.rootDirectory {
 		return "/"
 	}
-	return "/" + strings.TrimPrefix(clean, prefix+"/")
+	return "/" + strings.TrimPrefix(clean, d.rootDirectory+"/")
 }
 
 func (d *driver) folderPathToKey(path string) string {
 	clean := strings.Trim(path, "/")
+
+	if d.rootDirectory == "" && clean == "" {
+		return "/"
+	}
 	if d.rootDirectory == "" {
 		return clean + "/"
 	}
-	return strings.Trim(d.rootDirectory, "/") + "/" + clean + "/"
+	if clean == "" {
+		return d.rootDirectory + "/"
+	}
+	return d.rootDirectory + "/" + clean + "/"
 }
 
 func (d *driver) folderKeyToPath(key string) string {
 	clean := strings.Trim(key, "/")
-	prefix := strings.Trim(d.rootDirectory, "/")
-	if prefix == "" {
-		return "/" + clean
-	}
-	// 根目录
-	if clean == prefix {
+
+	if d.rootDirectory == "" && clean == "" {
 		return "/"
 	}
-	return "/" + strings.TrimPrefix(clean, prefix+"/") + "/"
+	if d.rootDirectory == "" {
+		return "/" + clean
+	}
+	if clean == d.rootDirectory {
+		return "/"
+	}
+	return "/" + strings.TrimPrefix(clean, d.rootDirectory+"/") + "/"
 }
 
 func (d *driver) ossRange(offset int64) *string {
