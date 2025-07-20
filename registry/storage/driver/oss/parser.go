@@ -13,12 +13,10 @@ type Parameters struct {
 	Region          string `mapstructure:"region"`
 	Bucket          string `mapstructure:"bucket"`
 	RootDirectory   string `mapstructure:"rootdirectory"`
-	ChunkSize       int64  `mapstructure:"chunk"`
 }
 
 func NewParameters(parameters map[string]interface{}) (*Parameters, error) {
-	const defaultChunkSize = 5 * 1024 * 1024
-	params := Parameters{ChunkSize: defaultChunkSize}
+	params := Parameters{}
 
 	if err := mapstructure.Decode(parameters, &params); err != nil {
 		return nil, err
@@ -34,9 +32,6 @@ func NewParameters(parameters map[string]interface{}) (*Parameters, error) {
 	}
 	if params.Bucket == "" {
 		return nil, errors.New("bucket is required")
-	}
-	if params.ChunkSize < 100<<10 { // min 100KB chunk size
-		return nil, errors.New("chunk must be at least 100KB")
 	}
 	if params.RootDirectory != "" {
 		params.RootDirectory = strings.Trim(params.RootDirectory, "/")

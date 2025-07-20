@@ -7,11 +7,11 @@ import (
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss"
 )
 
-func (d *driver) ossBucketPtr() *string {
+func (d *driver) bucketPtr() *string {
 	return oss.Ptr(d.bucket)
 }
 
-func (d *driver) ossKeyPtr(path string) *string {
+func (d *driver) pathToKeyPtr(path string) *string {
 	key := d.pathToKey(path)
 	return oss.Ptr(key)
 }
@@ -69,7 +69,7 @@ func (d *driver) folderKeyToPath(key string) string {
 	return "/" + strings.TrimPrefix(clean, d.rootDirectory+"/") + "/"
 }
 
-func (d *driver) ossRange(offset int64) *string {
+func (d *driver) ossRangePtr(offset int64) *string {
 	ofs := strconv.FormatInt(offset, 10)
 	return oss.Ptr("bytes=" + ofs + "-")
 }

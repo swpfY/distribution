@@ -84,16 +84,16 @@ func TestFolderKeyToPath(t *testing.T) {
 
 func TestOssBucketPtr(t *testing.T) {
 	d := &driver{bucket: "my-bucket"}
-	ptr := d.ossBucketPtr()
+	ptr := d.bucketPtr()
 
 	if ptr == nil || *ptr != "my-bucket" {
-		t.Errorf("ossBucketPtr() = %v; want 'my-bucket'", ptr)
+		t.Errorf("bucketPtr() = %v; want 'my-bucket'", ptr)
 	}
 }
 
 func TestOssKeyPtr(t *testing.T) {
 	d := &driver{rootDirectory: "registry"}
-	ptr := d.ossKeyPtr("/abc/def")
+	ptr := d.pathToKeyPtr("/abc/def")
 
 	if ptr == nil || *ptr != "registry/abc/def" {
 		t.Errorf("ossKeyPtr() = %v; want 'registry/abc/def'", ptr)
@@ -103,7 +103,7 @@ func TestOssKeyPtr(t *testing.T) {
 func TestOssRange(t *testing.T) {
 	d := &driver{}
 	offset := int64(1024)
-	ptr := d.ossRange(offset)
+	ptr := d.ossRangePtr(offset)
 
 	expected := "bytes=" + strconv.FormatInt(offset, 10) + "-"
 	if ptr == nil || *ptr != expected {
