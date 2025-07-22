@@ -8,7 +8,7 @@
 This project inherits from [Distribution](https://github.com/distribution/distribution) and add some new storage drivers. Additional support providers are as follows：
 
 - [Tencent Cloud Object Stroage (COS)](https://www.tencentcloud.com/products/cos?lang=en)  ✅
-- [AliCloud Object Storage Service (OSS)](https://www.alibabacloud.com/en/product/object-storage-service?_p_lc=1) ⌛️
+- [AliCloud Object Storage Service (OSS)](https://www.alibabacloud.com/en/product/object-storage-service?_p_lc=1) ✅
 
 ## Provider
 
@@ -22,6 +22,16 @@ This project inherits from [Distribution](https://github.com/distribution/distri
 | bucket        | yes      | The bucket name registered in cos. For example `test-registry-1101772061`. |
 | rootdirectory | no       | This is a prefix that is applied to all S3 keys to allow you to segment data in your bucket if necessary. The default is empty. |
 | serviceurl    | no       | It is used to get service. The default is `https://service.cos.myqcloud.com`. |
+
+### AliCloud Object Storage Service（OSS）
+
+| Parameter     | Required | Description                                                  |
+| ------------- | -------- | ------------------------------------------------------------ |
+| accessid      | yes      | Your AliCloud Access Key Id.                                 |
+| secret        | yes      | Your AliCloud Access Key Secret.                             |
+| region        | yes      | The OSS region in which your bucket exists. For example `cn-hangzhou`. |
+| bucket        | yes      | The bucket name registered in OSS. For example `test-registry-1101772061`. |
+| rootdirectory | no       | This is a prefix that is applied to all object keys to allow you to segment data in your bucket if necessary. The default is empty. |
 
 ## Image
 

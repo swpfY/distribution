@@ -130,6 +130,14 @@ github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric
 # github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.48.1
 ## explicit; go 1.21
 github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping
+# github.com/aliyun/alibabacloud-oss-go-sdk-v2 v1.2.3
+## explicit; go 1.18
+github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss
+github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/credentials
+github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/crypto
+github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/retry
+github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/signer
+github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/transport
 # github.com/aws/aws-sdk-go v1.55.5
 ## explicit; go 1.19
 github.com/aws/aws-sdk-go/aws

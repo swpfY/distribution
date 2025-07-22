@@ -1,4 +1,4 @@
-package cos
+package oss
 
 import (
 	"context"
@@ -15,65 +15,55 @@ import (
 )
 
 const (
-	envSecretID      = "COS_STORAGE_SECRET_ID"
-	envSecretKey     = "COS_STORAGE_SECRET_KEY"
-	envRegion        = "COS_STORAGE_REGION"
-	envBucket        = "COS_STORAGE_BUCKET"
-	envRootDirectory = "COS_STORAGE_ROOT_DIRECTORY"
+	envAccessKeyID     = "OSS_STORAGE_ACCESS_KEY_ID"
+	envAccessKeySecret = "OSS_STORAGE_ACCESS_KEY_SECRET"
+	envRegion          = "OSS_STORAGE_REGION"
+	envBucket          = "OSS_STORAGE_BUCKET"
+	envRootDirectory   = "OSS_STORAGE_ROOT_DIRECTORY"
 )
 
 var (
-	cosDriverConstructor func() (storagedriver.StorageDriver, error)
+	ossDriverConstructor func() (storagedriver.StorageDriver, error)
 	skipCheck            func(tb testing.TB)
+	timestamp            string
 )
 
 func init() {
-	// load env
-	err := godotenv.Load()
-	if err != nil {
-		fmt.Println("Error loading .env file")
-	}
+	_ = godotenv.Load()
+	now := time.Now()
+	timestamp = now.Format("20060102_150405")
 
 	var (
-		secretID      string
-		secretKey     string
-		region        string
-		bucket        string
-		serviceURL    = "https://service.cos.myqcloud.com"
-		rootDirectory string
+		accessKeyID     = os.Getenv(envAccessKeyID)
+		accessKeySecret = os.Getenv(envAccessKeySecret)
+		region          = os.Getenv(envRegion)
+		bucket          = os.Getenv(envBucket)
+		rootDirectory   = os.Getenv(envRootDirectory)
 	)
-
-	config := []struct {
-		env       string
-		value     *string
-		missingOk bool
-	}{
-		{envSecretID, &secretID, false},
-		{envSecretKey, &secretKey, false},
-		{envRegion, &region, false},
-		{envBucket, &bucket, false},
-		{envRootDirectory, &rootDirectory, true},
+	if rootDirectory == "" {
+		rootDirectory = fmt.Sprint("test-", timestamp)
 	}
 
 	var missing []string
-	for _, v := range config {
-		*v.value = os.Getenv(v.env)
-		if *v.value == "" && !v.missingOk {
-			missing = append(missing, v.env)
-		}
+	if accessKeyID == "" {
+		missing = append(missing, envAccessKeyID)
+	}
+	if accessKeySecret == "" {
+		missing = append(missing, envAccessKeySecret)
+	}
+	if region == "" {
+		missing = append(missing, envRegion)
+	}
+	if bucket == "" {
+		missing = append(missing, envBucket)
 	}
 
-	now := time.Now()
-	timestamp := now.Format("20060102_150405")
-	rootDirectory = fmt.Sprint("test-", timestamp, "/")
-
-	cosDriverConstructor = func() (storagedriver.StorageDriver, error) {
+	ossDriverConstructor = func() (storagedriver.StorageDriver, error) {
 		parameters := map[string]interface{}{
-			"secretid":      secretID,
-			"secretkey":     secretKey,
+			"accessid":      accessKeyID,
+			"secret":        accessKeySecret,
 			"region":        region,
 			"bucket":        bucket,
-			"serviceurl":    serviceURL,
 			"rootdirectory": rootDirectory,
 		}
 		params, err := NewParameters(parameters)
@@ -83,29 +73,28 @@ func init() {
 		return New(context.Background(), params)
 	}
 
-	// Skip COS storage driver tests if environment variable parameters are not provided
 	skipCheck = func(tb testing.TB) {
 		tb.Helper()
 		if len(missing) > 0 {
-			tb.Skipf("Must set %s environment variables to run COS tests", strings.Join(missing, ", "))
+			tb.Skipf("Must set %s environment variables to run OSS tests", strings.Join(missing, ", "))
 		}
 	}
 }
 
-func TestCosDriverSuite(t *testing.T) {
+func TestOssDriverSuite(t *testing.T) {
 	skipCheck(t)
-	testsuites.Driver(t, cosDriverConstructor)
+	testsuites.Driver(t, ossDriverConstructor)
 }
 
-func BenchmarkCosDriverSuite(b *testing.B) {
+func BenchmarkOssDriverSuite(b *testing.B) {
 	skipCheck(b)
-	testsuites.BenchDriver(b, cosDriverConstructor)
+	testsuites.BenchDriver(b, ossDriverConstructor)
 }
 
 func TestPutAndGetContent(t *testing.T) {
 	skipCheck(t)
 
-	driver, err := cosDriverConstructor()
+	driver, err := ossDriverConstructor()
 	if err != nil {
 		t.Fatalf("failed to create driver: %v", err)
 	}
@@ -134,7 +123,7 @@ func TestPutAndGetContent(t *testing.T) {
 func TestStatAndList(t *testing.T) {
 	skipCheck(t)
 
-	driver, err := cosDriverConstructor()
+	driver, err := ossDriverConstructor()
 	if err != nil {
 		t.Fatalf("failed to create driver: %v", err)
 	}
@@ -203,7 +192,7 @@ func TestStatAndList(t *testing.T) {
 func TestReader(t *testing.T) {
 	skipCheck(t)
 
-	driver, err := cosDriverConstructor()
+	driver, err := ossDriverConstructor()
 	if err != nil {
 		t.Fatalf("failed to create driver: %v", err)
 	}
@@ -258,7 +247,7 @@ func TestReader(t *testing.T) {
 func TestDelete(t *testing.T) {
 	skipCheck(t)
 
-	driver, err := cosDriverConstructor()
+	driver, err := ossDriverConstructor()
 	if err != nil {
 		t.Fatalf("failed to create driver: %v", err)
 	}
@@ -293,7 +282,7 @@ func TestDelete(t *testing.T) {
 func TestMove(t *testing.T) {
 	skipCheck(t)
 
-	driver, err := cosDriverConstructor()
+	driver, err := ossDriverConstructor()
 	if err != nil {
 		t.Fatalf("failed to create driver: %v", err)
 	}
@@ -327,5 +316,48 @@ func TestMove(t *testing.T) {
 	}
 	if string(data) != string(content) {
 		t.Errorf("Move content mismatch: expected %s, got %s", content, data)
+	}
+}
+
+func TestWalk(t *testing.T) {
+	skipCheck(t)
+
+	driver, err := ossDriverConstructor()
+	if err != nil {
+		t.Fatalf("failed to create driver: %v", err)
+	}
+
+	ctx := context.Background()
+	prefix := "/main/walk_test"
+	paths := []string{
+		prefix + "/a.txt",
+		prefix + "/sub/b.txt",
+		prefix + "/sub/c.txt",
+	}
+	for _, p := range paths {
+		if err := driver.PutContent(ctx, p, []byte("x")); err != nil {
+			t.Fatalf("PutContent failed for %s: %v", p, err)
+		}
+	}
+
+	var walked []string
+	walkFn := func(fi storagedriver.FileInfo) error {
+		walked = append(walked, fi.Path())
+		return nil
+	}
+
+	if err := driver.Walk(ctx, prefix, walkFn); err != nil {
+		t.Fatalf("Walk failed: %v", err)
+	}
+
+	// 验证 walked 列表包含所有写入的文件
+	m := make(map[string]struct{}, len(walked))
+	for _, p := range walked {
+		m[p] = struct{}{}
+	}
+	for _, expected := range paths {
+		if _, found := m[expected]; !found {
+			t.Errorf("Walk missing %q, walked: %v", expected, walked)
+		}
 	}
 }
