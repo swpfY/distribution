@@ -8,6 +8,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.11.1
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.6.0
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.0.0
+	github.com/aliyun/alibabacloud-oss-go-sdk-v2 v1.2.3
 	github.com/aws/aws-sdk-go v1.55.5
 	github.com/bshuster-repo/logrus-logstash-hook v1.0.0
 	github.com/coreos/go-systemd/v22 v22.5.0
