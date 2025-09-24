@@ -600,7 +600,9 @@ func (d *driver) doWalk(parentCtx context.Context, objectCount *int64, from, sta
 
 // add the prefix
 func (d *driver) pathToKey(path string) string {
-	return strings.TrimLeft(strings.TrimRight(d.rootDirectory, "/")+path, "/")
+	// Important! delete the root prefix
+	newPath := strings.TrimPrefix(path, d.rootDirectory)
+	return strings.TrimLeft(strings.TrimRight(d.rootDirectory, "/")+newPath, "/")
 }
 
 // remove the prefix

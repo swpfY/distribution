@@ -1,0 +1,24 @@
+version: 0.1
+log:
+  fields:
+    service: registry
+  level: debug
+storage:
+  cos:
+    secretid: ''
+    secretkey: ''
+    region: ap-nanjing
+    bucket: matrix-registry-1332237456
+    rootdirectory: /registry
+  cache:
+    blobdescriptor: inmemory
+http:
+  addr: :5000
+  secret: nyli8EHkIdZzOFJETPjXN
+  headers:
+    X-Content-Type-Options: [nosniff]
+health:
+  storagedriver:
+    enabled: true
+    interval: 10s
+    threshold: 3

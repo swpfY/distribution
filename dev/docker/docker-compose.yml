@@ -1,0 +1,7 @@
+services:
+  registry:
+    image: distribution:0924-v0
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./config.yml:/etc/distribution/config.yml
