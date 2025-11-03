@@ -2,6 +2,7 @@ package cos
 
 import (
 	"errors"
+
 	"github.com/mitchellh/mapstructure"
 )
 

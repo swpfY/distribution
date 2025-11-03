@@ -5,11 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/distribution/distribution/v3/internal/dcontext"
-	storagedriver "github.com/distribution/distribution/v3/registry/storage/driver"
-	"github.com/distribution/distribution/v3/registry/storage/driver/base"
-	"github.com/distribution/distribution/v3/registry/storage/driver/factory"
-	"github.com/tencentyun/cos-go-sdk-v5"
 	"io"
 	"net/http"
 	"net/url"
@@ -18,6 +13,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/distribution/distribution/v3/internal/dcontext"
+	storagedriver "github.com/distribution/distribution/v3/registry/storage/driver"
+	"github.com/distribution/distribution/v3/registry/storage/driver/base"
+	"github.com/distribution/distribution/v3/registry/storage/driver/factory"
+	"github.com/tencentyun/cos-go-sdk-v5"
 )
 
 const (
@@ -286,7 +287,10 @@ func (d *driver) Stat(ctx context.Context, path string) (storagedriver.FileInfo,
 	}
 	// file info
 	size, err := strconv.ParseInt(res.Header.Get("Content-Length"), 10, 64)
-	modTime, err := time.Parse(time.RFC1123, res.Header.Get("Last-Modified"))
+	if err != nil {
+		return nil, err
+	}
+	modTime, err := ParseTime(res.Header.Get("Last-Modified"))
 	if err != nil {
 		return nil, err
 	}
@@ -374,7 +378,7 @@ func (d *driver) copy(ctx context.Context, sourcePath, destPath string) error {
 		return nil
 	}
 	// file size is larger than 32MB
-	v, _, err := d.cosClient.Object.InitiateMultipartUpload(ctx, key, &cos.InitiateMultipartUploadOptions{
+	v, _, _ := d.cosClient.Object.InitiateMultipartUpload(ctx, key, &cos.InitiateMultipartUploadOptions{
 		ObjectPutHeaderOptions: &cos.ObjectPutHeaderOptions{
 			ContentType: contentType,
 		},
@@ -524,6 +528,8 @@ func (d *driver) doWalk(parentCtx context.Context, objectCount *int64, from, sta
 	var retError error
 	// the most recent skip directory to avoid walking over undesirable files
 	var prevSkipDir string
+	// the most recent directory walked for de-duplication
+	var prevDir string
 
 	key := d.pathToKey(from)
 	opt := &cos.BucketGetOptions{
@@ -532,7 +538,7 @@ func (d *driver) doWalk(parentCtx context.Context, objectCount *int64, from, sta
 		Marker:  d.pathToKey(startAfter),
 	}
 	ctx, done := dcontext.WithTrace(parentCtx)
-	defer done("cos.Bucket.Get(%s)", opt)
+	defer done("cos.Bucket.Get(%+v)", opt)
 	isTruncated := true
 	for isTruncated {
 		// list all the objects
@@ -541,30 +547,45 @@ func (d *driver) doWalk(parentCtx context.Context, objectCount *int64, from, sta
 			return err
 		}
 		walkInfos := make([]storagedriver.FileInfoInternal, 0, len(res.Contents))
+		prevDir = from
 		for _, content := range res.Contents {
-			if strings.HasSuffix(content.Key, "/") { // directory
+			// COS returns only objects, without directories
+			path := d.keyToPath(content.Key)
+
+			// get a list of all directories between the previous
+			dirs := DirectoryDiff(prevDir, path)
+			for _, dir := range dirs {
 				walkInfos = append(walkInfos, storagedriver.FileInfoInternal{
 					FileInfoFields: storagedriver.FileInfoFields{
 						IsDir: true,
-						Path:  strings.TrimRight(content.Key, "/"),
+						Path:  dir,
 					},
 				})
-			} else { // file object
-				// last modification time
-				modTime, err := time.Parse(time.RFC1123, content.LastModified)
-				if err != nil {
-					return err
-				}
-				walkInfos = append(walkInfos, storagedriver.FileInfoInternal{
-					FileInfoFields: storagedriver.FileInfoFields{
-						IsDir:   false,
-						Size:    content.Size,
-						ModTime: modTime,
-						Path:    content.Key,
-					},
-				})
+				prevDir = dir
 			}
+
+			// corner case
+			if strings.HasSuffix(path, "/") {
+				continue
+			}
+
+			modTime, err := ParseTime(content.LastModified)
+			if err != nil {
+				return err
+			}
+
+			walkInfos = append(walkInfos, storagedriver.FileInfoInternal{
+				FileInfoFields: storagedriver.FileInfoFields{
+					IsDir:   false,
+					Size:    content.Size,
+					ModTime: modTime,
+					Path:    path,
+				},
+			})
 		}
+
+		// according to the files, append directories
+
 		isTruncated = res.IsTruncated
 		opt.Marker = res.NextMarker
 		// iterative
@@ -600,14 +621,12 @@ func (d *driver) doWalk(parentCtx context.Context, objectCount *int64, from, sta
 
 // add the prefix
 func (d *driver) pathToKey(path string) string {
-	// Important! delete the root prefix
-	newPath := strings.TrimPrefix(path, d.rootDirectory)
-	return strings.TrimLeft(strings.TrimRight(d.rootDirectory, "/")+newPath, "/")
+	return PathToKey(d.rootDirectory, path)
 }
 
 // remove the prefix
 func (d *driver) keyToPath(key string) string {
-	return "/" + strings.TrimRight(strings.TrimPrefix(key, d.rootDirectory), "/")
+	return KeyToPath(d.rootDirectory, key)
 }
 
 var _ storagedriver.FileWriter = &writer{}
